@@ -1,30 +1,27 @@
-# Architecture
+# Architecture & Design Decisions
 
-## Purpose
+`exporterkit` provides a lightweight, robust registry and exposition pipeline designed specifically for collect-on-scrape Prometheus exporters.
 
-`github.com/Trysac/u135-exporter-kit` is a small, dependency-free Go library: Write Prometheus exporters without client_golang: collect-on-scrape collectors, byte-exact text format 0.0.4, per-collector timeouts and up gauges
+## Registry and Scrape Lifecycle
 
-## Shape
+1. **Collector Registration (`Register`)**:
+   - Collectors define their unique `Name()` and declare `Describe() []Desc`.
+   - Family names, metric names, and label names are validated against Prometheus 0.0.4 lexical grammar.
+   - No two collectors can declare the same metric family name.
+   - Collector registration is thread-safe.
 
-```text
-caller code --> package exporterkit (repository root)
-                    |
-                    +-- pure functions, no I/O, no global mutable state
-                    +-- internal/ (optional private helpers)
-```
+2. **Concurrent Gather (`Gather`)**:
+   - On each scrape, a snapshot of registered collectors is sorted lexically by collector name.
+   - Each collector runs in its own goroutine with a dedicated `context.WithTimeout` derived from the scrape context.
+   - Collectors emit samples into a thread-safe private collector buffer.
+   - Results are passed via buffered channels so a blocked collector that ignores context cancellation does not hang the scrape or leak channel resources.
+   - Panics and errors are trapped, recording collector status as `0` in `exporter_collector_up` and discarding partial invalid samples.
 
-- **Public API**: every exported identifier of the root package. Unexported identifiers and
-  `internal/` packages may change without a major version.
-- **Errors**: invalid input returns an error; exported sentinel errors (such as `ErrBlank`) let
-  callers branch with `errors.Is`. The library never panics on input, prints or exits.
-- **Side effects**: none. If a feature needs I/O, accept an interface (`io.Reader` or a small
-  custom one) instead of opening resources, and record the choice in an ADR.
+3. **Validation & Caps**:
+   - Total samples collected during a scrape are capped at `MaxSamples` (default 100,000).
+   - Samples emitting undeclared metric names, mismatched label counts, or duplicate label tuples are flagged as `ErrInvalidSample`.
 
-## Quality contract
-
-`scripts/check` is the single definition of the gates; `fabrica.json` tells the factory and CI
-how to run it. See [TESTING.md](TESTING.md).
-
-## Decisions
-
-Architecture decisions are recorded in [decisions/](decisions/) as numbered ADRs.
+4. **Text Formatting (`WriteText`)**:
+   - Metric families and sample label values are sorted deterministically.
+   - Values are formatted using standard Prometheus float conventions (`NaN`, `+Inf`, `-Inf`, and `strconv.FormatFloat(v, 'g', -1, 64)`).
+   - Backslashes, quotes, and newlines are strictly escaped according to 0.0.4 specifications.
