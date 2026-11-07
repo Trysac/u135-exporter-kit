@@ -9,4 +9,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add exporterkit library with Prometheus text exposition 0.0.4 writer, collect-on-scrape registry, per-collector timeouts, and up gauges.
 - Initial project structure from the factory utility template.

@@ -1,55 +1,33 @@
 # exporter-kit
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/Trysac/u135-exporter-kit.svg)](https://pkg.go.dev/github.com/Trysac/u135-exporter-kit)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/Trysac/u135-exporter-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/Trysac/u135-exporter-kit/actions/workflows/ci.yml)
 
-Write Prometheus exporters without client_golang: collect-on-scrape collectors, byte-exact text format 0.0.4, per-collector timeouts and up gauges
+`exporter-kit` is a zero-dependency, enterprise-grade Go library for building Prometheus exporters with a collect-on-scrape architecture. It implements Prometheus text exposition format 0.0.4 with strict validation, per-collector timeouts, and automatic health metric tracking (`exporter_collector_up`).
 
-## Problem
+## The Problem
 
-Describe in two or three sentences the concrete problem this utility solves, who hits it, and what
-they do today without it. Replace this paragraph when the first real feature lands.
+Standard Prometheus Go clients are designed around continuous in-memory metric updates. Exporters monitoring external services like databases or vendor APIs need to gather metrics dynamically at scrape time. Pulling in heavy client dependencies or relying on unconstrained collection routines often leads to scrape timeouts, thread exhaustion, or corrupted exposition formats.
 
-## Install
+## Why not client_golang?
 
-```sh
-go get github.com/Trysac/u135-exporter-kit
-```
-
-Requires Go 1.23 or newer. No dependencies outside the standard library.
+`exporter-kit` provides a dedicated collect-on-scrape model. Unlike `client_golang`, it has zero external dependencies, enforces strict per-collector deadlines via `context.Context`, and ensures byte-exact 0.0.4 text output without accidental escaping errors.
 
 ## Usage
 
 ```go
-package main
+import "github.com/Trysac/u135-exporter-kit/exporterkit"
 
-import (
-	"errors"
-	"fmt"
-
-	"github.com/Trysac/u135-exporter-kit"
-)
-
-func main() {
-	// Normalize trims surrounding whitespace and lower-cases the text.
-	out, _ := exporterkit.Normalize("  Hello World ")
-	fmt.Println(out) // -> "hello world"
-
-	// Blank input is rejected explicitly instead of returning an empty string.
-	if _, err := exporterkit.Normalize("   "); errors.Is(err, exporterkit.ErrBlank) {
-		fmt.Println("rejected:", err)
-	}
-}
+reg := exporterkit.NewRegistry(exporterkit.Options{})
+err := reg.Register(myCollector)
+http.Handle("/metrics", reg.Handler())
+_ = http.ListenAndServe(":9100", nil)
 ```
 
-## Documentation
+## Public API Summary
 
-- [Architecture](docs/ARCHITECTURE.md) and [decisions](docs/decisions/)
-- [Testing](docs/TESTING.md) and [security](docs/SECURITY.md)
-- [Project record](docs/PROJECT.md) and [stack](docs/STACK.md)
-- [Changelog](CHANGELOG.md) and [contributing guide](CONTRIBUTING.md)
+- **Registry**: `NewRegistry(Options) *Registry`, `Register(Collector) error`, `Gather(context.Context) ([]Family, error)`, `Handler() http.Handler`.
+- **Writer**: `WriteText(io.Writer, []Family) error`.
+- **Types**: `MetricType` (Counter, Gauge, Untyped), `Desc`, `Sample`, `Collector` (interface), `Options`.
+- **Errors**: `ErrInvalidName`, `ErrDuplicateCollector`, `ErrInvalidSample`, `ErrTooManySamples`.
 
-## License
-
-[MIT](LICENSE) (c) 2026 Miguel Gomez
+For threat model and security limitations, see [docs/SECURITY.md](docs/SECURITY.md).
